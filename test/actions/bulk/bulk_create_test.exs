@@ -596,6 +596,80 @@ defmodule Ash.Test.Actions.BulkCreateTest do
     end
   end
 
+  defmodule Parent do
+    @moduledoc false
+    use Ash.Resource, domain: Domain, data_layer: Ash.DataLayer.Ets
+
+    ets do
+      private?(true)
+    end
+
+    actions do
+      defaults [:read, :update, :destroy]
+
+      create :create do
+        primary? true
+        accept [:text]
+
+        argument :child, :map
+        change manage_relationship(:child, type: :create)
+      end
+    end
+
+    attributes do
+      uuid_v7_primary_key :id
+      attribute :text, :string, public?: true
+    end
+
+    relationships do
+      has_one :child, Ash.Test.Actions.BulkCreateTest.Child, public?: true
+    end
+  end
+
+  defmodule Child do
+    @moduledoc false
+    use Ash.Resource, domain: Domain, data_layer: Ash.DataLayer.Ets
+
+    ets do
+      private?(true)
+    end
+
+    actions do
+      defaults [:read, :destroy, create: :*]
+    end
+
+    attributes do
+      uuid_v7_primary_key :id
+      attribute :value, :integer, public?: true
+    end
+
+    relationships do
+      belongs_to :parent, Ash.Test.Actions.BulkCreateTest.Parent, public?: true
+    end
+  end
+
+  test "rollback parent creation when child attributes are invalid" do
+    # Create parent with invalid child attributes
+    r =
+      Ash.bulk_create(
+        [
+          %{
+            text: "foo",
+            child: %{
+              value: "Not an integer"
+            }
+          }
+        ],
+        Parent,
+        :create, transaction: :all, domain: Ash.Test.Domain)
+
+    # Batch throws an error
+    assert r.status == :error
+
+    # But the Parent resource is created... So this check fails
+    assert Ash.read!(Parent, load: [:child]) == []
+  end
+
   test "returns created records" do
     org =
       Org
